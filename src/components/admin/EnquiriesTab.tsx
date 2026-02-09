@@ -131,19 +131,20 @@ const EnquiriesTab = () => {
                     </TableCell>
                     <TableCell>
                       {e.pdf_url ? (() => {
+                        const shortUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pdf?id=${e.id}`;
                         const segments = e.pdf_url.split("/");
                         const filename = decodeURIComponent(segments[segments.length - 1] || "PDF");
                         const shortLabel = filename.length > 20 ? filename.slice(0, 17) + "..." : filename;
                         return (
                           <div className="flex items-center gap-1">
-                            <a href={e.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-xs max-w-[120px] truncate" title={filename}>
+                            <a href={shortUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-xs max-w-[120px] truncate" title={filename}>
                               <FileText className="h-4 w-4 shrink-0" /> {shortLabel}
                             </a>
                             <Button
                               variant="ghost"
                               size="sm"
                               className="h-6 w-6 p-0"
-                              onClick={() => copyPdfLink(e.pdf_url, e.id)}
+                              onClick={() => copyPdfLink(shortUrl, e.id)}
                               title="Copy PDF link"
                             >
                               {copiedId === e.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
