@@ -1,21 +1,34 @@
 
 
-## Update WATI Template Name
+## Fix WATI Template Parameter Names
 
-The database currently has the template name set to `admin_new_enquiry`, but the approved WATI template is `enquiry_notification`. 
+### Problem
+WATI is rejecting the WhatsApp messages with "Check your template, it cannot have typos or blank text". The template uses numbered placeholders (`{{1}}`, `{{2}}`, `{{3}}`), but the edge function sends parameters with string names (`name`, `phone`, `images`). WATI cannot match them.
 
-### What needs to change
+### Solution
+Update the `send-whatsapp` edge function to use numbered parameter names that match the template placeholders.
 
-**1. Update the template name in the database**
-- Run a SQL update to change `template_name` from `admin_new_enquiry` to `enquiry_notification` in the `wati_settings` table.
+### Changes
 
-That's it -- the edge function already reads `settings.template_name` dynamically, so no code changes are needed. Once the database value is updated, WhatsApp messages will use the correct approved template.
+**File: `supabase/functions/send-whatsapp/index.ts`** (lines 59-63)
 
-### Technical Details
-
-SQL to execute:
-```sql
-UPDATE wati_settings SET template_name = 'enquiry_notification';
+Change the parameters array from:
+```typescript
+const parameters = [
+  { name: "name", value: enquiry.name || "N/A" },
+  { name: "phone", value: enquiry.mobile || "N/A" },
+  { name: "images", value: enquiry.pdf_url || "No PDF available" },
+];
 ```
 
-No file changes required. The edge function (`send-whatsapp/index.ts`) already references `settings.template_name` on line 72, which will automatically pick up the new value.
+To:
+```typescript
+const parameters = [
+  { name: "1", value: enquiry.name || "N/A" },
+  { name: "2", value: enquiry.mobile || "N/A" },
+  { name: "3", value: enquiry.pdf_url || "No PDF available" },
+];
+```
+
+### After Deployment
+The edge function will be redeployed automatically. Then we can submit another test enquiry to verify the messages go through successfully.
