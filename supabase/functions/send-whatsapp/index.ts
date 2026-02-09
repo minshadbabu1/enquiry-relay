@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
         const res = await fetch(url, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${settings.api_key}`,
+            Authorization: settings.api_key,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -72,11 +72,13 @@ Deno.serve(async (req) => {
             parameters: [
               { name: "name", value: enquiry.name },
               { name: "phone", value: enquiry.mobile },
-              { name: "Source", value: enquiry.place },
+              { name: "source", value: enquiry.place },
             ],
           }),
         });
-        return { phone: n.phone_number, status: res.status, ok: res.ok };
+        const resBody = await res.text();
+        console.log(`WATI response for ${n.phone_number}: ${res.status} - ${resBody}`);
+        return { phone: n.phone_number, status: res.status, ok: res.ok, body: resBody };
       })
     );
 
