@@ -91,10 +91,13 @@ const Index = () => {
           .map((r) => r.value);
       }
 
-      // 2. Single INSERT with all data including image URLs
-      const { data: enquiry, error } = await supabase
+      // 2. Generate ID client-side so we don't need .select().single()
+      const enquiryId = crypto.randomUUID();
+
+      const { error } = await supabase
         .from("enquiries")
         .insert({
+          id: enquiryId,
           name: data.name,
           mobile: data.mobile,
           place: data.district,
@@ -103,16 +106,14 @@ const Index = () => {
           service: data.service,
           requirements: data.requirements || null,
           image_urls: imageUrls.length > 0 ? imageUrls : null,
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
       // 3. Generate PDF (non-blocking)
       try {
         await supabase.functions.invoke("generate-pdf", {
-          body: { enquiry_id: enquiry.id },
+          body: { enquiry_id: enquiryId },
         });
       } catch {
         console.error("PDF generation failed");
@@ -121,7 +122,7 @@ const Index = () => {
       // 4. Send WhatsApp (non-blocking)
       try {
         await supabase.functions.invoke("send-whatsapp", {
-          body: { enquiry_id: enquiry.id },
+          body: { enquiry_id: enquiryId },
         });
       } catch {
         console.error("WhatsApp notification failed");
@@ -129,8 +130,8 @@ const Index = () => {
 
       setSubmitted(true);
     } catch (err) {
+      console.error("Enquiry submission error:", err);
       toast.error("Failed to submit enquiry. Please try again.");
-      console.error(err);
     } finally {
       setLoading(false);
     }
