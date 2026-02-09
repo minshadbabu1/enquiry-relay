@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
             parameters: [
               { name: "name", value: enquiry.name },
               { name: "phone", value: enquiry.mobile },
-              { name: "source", value: enquiry.place },
+              { name: "source", value: enquiry.service || enquiry.place },
             ],
           }),
         });
