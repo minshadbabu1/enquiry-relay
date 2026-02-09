@@ -1,114 +1,56 @@
 
 
-# Redesign Enquiry Form + Image Upload + PDF Generation
+# Fix: Enquiry Form Submission Failing with Images
 
-## Overview
-Redesign the home page enquiry form to match the reference screenshot, add image upload capability (max 5), store images in cloud storage, and generate a PDF order form with the enquiry details and uploaded images.
+## Root Cause
 
-## Form Redesign
+The enquiry submission fails when images are attached because after uploading images to storage, the code attempts to **UPDATE** the `enquiries` table with image URLs. However, the `enquiries` table only has INSERT and SELECT RLS policies -- there is **no UPDATE policy**, so the update is silently rejected, and subsequent steps may fail.
 
-The form will be updated to match the reference design:
-- **Header**: "START YOUR PROJECT" with gradient/accent styling
-- **Row 1**: Name (required) | Phone Number (required) -- side by side
-- **Row 2**: Select District dropdown (Kerala districts) | Square Feet (optional) -- side by side
-- **Row 3**: Service Required dropdown (full width) -- Interior Design, Renovation, Modular Kitchen, Painting
-- **Row 4**: Project requirements textarea (optional, full width)
-- **Row 5**: Image upload area (dashed border, max 5 images)
-- **Submit button**: "GET QUOTE" with gradient purple styling
+Additionally, the current flow is fragile: if any single image upload fails, the entire submission errors out.
 
-### Kerala Districts for Dropdown
-Thiruvananthapuram, Kollam, Pathanamthitta, Alappuzha, Kottayam, Idukki, Ernakulam, Thrissur, Palakkad, Malappuram, Kozhikode, Wayanad, Kannur, Kasaragod
+## Fix
 
-## Image Upload
+### 1. Add UPDATE RLS policy for enquiries table
 
-- Users can upload up to 5 images via a drag-and-drop or click-to-upload area
-- Images are uploaded to a storage bucket called `enquiry-images`
-- Image previews shown with remove button
-- Images stored with path: `{enquiry_id}/{filename}`
+Allow anyone to update their own enquiry (limited to `image_urls` column isn't possible via RLS, but we can allow general updates since the form needs it).
 
-## PDF Generation
+Alternatively, a simpler approach: **include `image_urls` in the initial INSERT** instead of updating afterward. This removes the need for an UPDATE policy entirely.
 
-- A new edge function `generate-pdf` will create a PDF order form
-- The PDF includes: enquiry details (name, phone, district, service, area, requirements) and all uploaded images
-- PDF is generated after form submission and stored in a `enquiry-pdfs` storage bucket
-- The PDF URL is saved on the enquiry record for admin access
+### 2. Restructure the submission flow
 
-## Database Changes
+Change the order so images are uploaded **before** the enquiry is inserted, then include the image URLs directly in the INSERT statement. This eliminates the need for an UPDATE call entirely.
 
-1. **Update `enquiries` table** -- add new columns:
-   - `district` (text, nullable) -- selected district
-   - `service` (text) -- replaces the current `place` column usage  
-   - `requirements` (text, nullable) -- project requirements
-   - `image_urls` (text array, nullable) -- URLs of uploaded images
-   - `pdf_url` (text, nullable) -- URL of generated PDF
+**New flow:**
+1. Upload images to storage (using a temporary UUID as folder name)
+2. Collect all image URLs  
+3. INSERT enquiry with all data including image URLs in one call
+4. Call generate-pdf edge function
+5. Call send-whatsapp edge function
 
-2. **Create storage bucket** `enquiry-images` (public, with RLS for uploads)
-3. **Create storage bucket** `enquiry-pdfs` (public, with RLS)
+### 3. Add error resilience for image uploads
 
-## Admin Panel Update
-
-- EnquiriesTab will show the new fields (district, service, requirements)
-- Add a "View PDF" link and image thumbnails for each enquiry
+Use `Promise.allSettled` instead of `Promise.all` so that if one image fails to upload, the others still succeed and the form still submits.
 
 ---
 
 ## Technical Details
 
-### Files to Create
-- `supabase/functions/generate-pdf/index.ts` -- Edge function to generate PDF from enquiry data and images
+### File: `src/pages/Index.tsx` (modify `onSubmit` function)
 
-### Files to Modify
-- `src/pages/Index.tsx` -- Complete form redesign with new layout, dropdowns, textarea, image upload
-- `src/components/admin/EnquiriesTab.tsx` -- Show new columns and PDF/image links
-- `supabase/functions/send-whatsapp/index.ts` -- Include new fields in WhatsApp template parameters
+**Before:**
+- Insert enquiry -> Upload images -> Update enquiry with URLs -> Generate PDF -> Send WhatsApp
 
-### Database Migration
-```sql
--- Add new columns to enquiries
-ALTER TABLE public.enquiries 
-  ADD COLUMN district text,
-  ADD COLUMN service text,
-  ADD COLUMN requirements text,
-  ADD COLUMN image_urls text[],
-  ADD COLUMN pdf_url text;
+**After:**
+- Generate a temporary ID (UUID) for image folder
+- Upload all images using `Promise.allSettled` (collect successful URLs)
+- Insert enquiry with all fields including `image_urls` in one call
+- Call generate-pdf (wrapped in try/catch, non-blocking)
+- Call send-whatsapp (wrapped in try/catch, non-blocking)
 
--- Create storage buckets
-INSERT INTO storage.buckets (id, name, public) VALUES ('enquiry-images', 'enquiry-images', true);
-INSERT INTO storage.buckets (id, name, public) VALUES ('enquiry-pdfs', 'enquiry-pdfs', true);
-
--- Allow anyone to upload to enquiry-images
-CREATE POLICY "Anyone can upload enquiry images"
-  ON storage.objects FOR INSERT
-  WITH CHECK (bucket_id = 'enquiry-images');
-
--- Allow public read on enquiry-images  
-CREATE POLICY "Public read enquiry images"
-  ON storage.objects FOR SELECT
-  USING (bucket_id = 'enquiry-images');
-
--- Allow public read on enquiry-pdfs
-CREATE POLICY "Public read enquiry pdfs"
-  ON storage.objects FOR SELECT
-  USING (bucket_id = 'enquiry-pdfs');
-
--- Allow service role to insert PDFs (edge function uses service role)
-CREATE POLICY "Service can upload enquiry pdfs"
-  ON storage.objects FOR INSERT
-  WITH CHECK (bucket_id = 'enquiry-pdfs');
-```
-
-### PDF Generation Edge Function
-- Uses a lightweight approach to build PDF content (using a Deno-compatible PDF library or raw PDF generation)
-- Fetches enquiry data and images from storage
-- Composes a formatted order form with company header, enquiry details table, and embedded images
-- Uploads the PDF to `enquiry-pdfs` bucket and updates the enquiry record with the URL
-
-### Form Submission Flow
-1. User fills form and selects images
-2. On submit: insert enquiry record into database
-3. Upload images to `enquiry-images/{enquiry_id}/`
-4. Update enquiry with image URLs
-5. Call `generate-pdf` edge function to create PDF
-6. Call `send-whatsapp` edge function for notification
-7. Show success screen
+Key changes:
+- Use `crypto.randomUUID()` to generate a folder ID before insert
+- Upload images first, collect URLs from successful uploads
+- Single INSERT with all data including `image_urls`
+- Remove the separate UPDATE call entirely
+- Use `Promise.allSettled` for resilient image uploading
 
