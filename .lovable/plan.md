@@ -1,34 +1,33 @@
 
+# Fix WhatsApp (WATI) Integration
 
-# Fix Enquiry Submission - RLS Policy Issue
+## Problems Found
 
-## Problem
-The "Anyone can submit enquiries" INSERT policy on the `enquiries` table is created as **RESTRICTIVE** (not permissive). PostgreSQL requires at least one **PERMISSIVE** policy to grant access -- restrictive policies can only further limit access. Since there are no permissive policies for INSERT, all submissions are blocked.
+1. **Double "Bearer" prefix in Authorization header**
+   The API key stored in the database already contains the full value `"Bearer eyJ..."`. However, the edge function code prepends another `"Bearer "` prefix, resulting in `"Bearer Bearer eyJ..."` -- which WATI rejects as unauthorized.
+
+2. **Template parameter name mismatch**
+   The parameter `"Source"` has a capital "S" which may not match the exact parameter names defined in your WATI template `admin_new_enquiry`. Parameter names must match exactly.
 
 ## Fix
-Run a database migration to:
-1. Drop the current restrictive INSERT policy
-2. Re-create it as a **PERMISSIVE** policy so anyone (even unauthenticated users) can submit enquiries
 
-Additionally, the admin SELECT policy also needs to be permissive for admins to view enquiries.
+Update the `send-whatsapp` edge function:
 
-## Technical Details
+1. **Remove the extra "Bearer" prefix** -- use the `api_key` value directly since it already includes "Bearer".
+2. **Add logging** for the WATI API response to help debug any template parameter issues.
+3. **Lowercase the "Source" parameter** to "source" for consistency (you may need to confirm the exact names in your WATI template).
 
-**SQL Migration:**
-```sql
--- Fix INSERT policy: make it permissive so public users can submit
-DROP POLICY IF EXISTS "Anyone can submit enquiries" ON public.enquiries;
-CREATE POLICY "Anyone can submit enquiries"
-  ON public.enquiries FOR INSERT
-  TO anon, authenticated
-  WITH CHECK (true);
+### Technical Details
 
--- Fix SELECT policy: make it permissive so admins can view
-DROP POLICY IF EXISTS "Admins can view enquiries" ON public.enquiries;
-CREATE POLICY "Admins can view enquiries"
-  ON public.enquiries FOR SELECT
-  TO authenticated
-  USING (has_role(auth.uid(), 'admin'::app_role));
+**File:** `supabase/functions/send-whatsapp/index.ts`
+
+Change line 66 from:
+```typescript
+Authorization: `Bearer ${settings.api_key}`,
+```
+To:
+```typescript
+Authorization: settings.api_key,
 ```
 
-No frontend code changes needed -- this is purely a database policy fix.
+Add response body logging after the WATI API call to capture any error messages from WATI for debugging.
