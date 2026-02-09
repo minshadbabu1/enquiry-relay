@@ -1,34 +1,45 @@
 
 
-## Fix WATI Template Parameter Names
+## Add WATI Delivery Status Tracking
 
-### Problem
-WATI is rejecting the WhatsApp messages with "Check your template, it cannot have typos or blank text". The template uses numbered placeholders (`{{1}}`, `{{2}}`, `{{3}}`), but the edge function sends parameters with string names (`name`, `phone`, `images`). WATI cannot match them.
+### Current State
+- The `enquiries` table has a `whatsapp_sent` boolean column -- only tracks "Sent" or "Pending"
+- The edge function checks HTTP `res.ok` but WATI returns `200 OK` even on failures (with `result: false` in the body)
+- The admin panel shows a simple Sent/Pending badge
 
-### Solution
-Update the `send-whatsapp` edge function to use numbered parameter names that match the template placeholders.
+### What Changes
 
-### Changes
+**1. Database: Add a `whatsapp_status` column**
+- Add a new `text` column `whatsapp_status` to the `enquiries` table (nullable, default `null`)
+- This will store detailed status: `"sent"`, `"failed"`, `"not_configured"`, or the actual WATI error message
+- Also add `whatsapp_response` as a `jsonb` column to store the full WATI API response for debugging
 
-**File: `supabase/functions/send-whatsapp/index.ts`** (lines 59-63)
+**2. Edge Function: Fix success detection and store response details**
+- The current code uses `res.ok` to determine success, but WATI returns HTTP 200 even on failure -- the actual success indicator is `result: true` in the JSON body
+- Parse the WATI response JSON and check `result` field instead of HTTP status
+- Save the status and full response to the `whatsapp_status` and `whatsapp_response` columns
 
-Change the parameters array from:
-```typescript
-const parameters = [
-  { name: "name", value: enquiry.name || "N/A" },
-  { name: "phone", value: enquiry.mobile || "N/A" },
-  { name: "images", value: enquiry.pdf_url || "No PDF available" },
-];
+**3. Admin Panel: Show detailed delivery status**
+- Replace the simple Sent/Pending badge with more detailed status display
+- Show "Sent" (green), "Failed" (red with error detail on hover), "Pending" (yellow), or "Not Configured" (gray)
+- Add a tooltip or expandable detail showing the WATI response when status is "Failed"
+- Add a "Retry" button for failed messages that re-invokes the edge function
+
+### Technical Details
+
+**Migration SQL:**
+```sql
+ALTER TABLE enquiries 
+  ADD COLUMN whatsapp_status text DEFAULT NULL,
+  ADD COLUMN whatsapp_response jsonb DEFAULT NULL;
 ```
 
-To:
-```typescript
-const parameters = [
-  { name: "1", value: enquiry.name || "N/A" },
-  { name: "2", value: enquiry.mobile || "N/A" },
-  { name: "3", value: enquiry.pdf_url || "No PDF available" },
-];
-```
+**Edge function changes (`supabase/functions/send-whatsapp/index.ts`):**
+- Parse each WATI response as JSON and check `result` field
+- Determine overall status: `"sent"` if all succeed, `"partial"` if some fail, `"failed"` if all fail
+- Update enquiry with both `whatsapp_sent`, `whatsapp_status`, and `whatsapp_response`
 
-### After Deployment
-The edge function will be redeployed automatically. Then we can submit another test enquiry to verify the messages go through successfully.
+**Admin UI changes (`src/components/admin/EnquiriesTab.tsx`):**
+- Color-coded badges: green for "sent", red for "failed", yellow for "pending", orange for "partial"
+- Tooltip on hover showing WATI error details from `whatsapp_response`
+- "Retry" button on failed rows that calls the `send-whatsapp` function again and refreshes the list
