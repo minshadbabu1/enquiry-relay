@@ -55,14 +55,12 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ message: "No numbers configured" }), { headers: corsHeaders });
     }
 
-    // Build parameters matching WATI template: {{1}}=name, {{2}}=phone, {{3}}=pdf (document header)
+    // Build parameters: {{1}}=name, {{2}}=phone, {{3}}=pdf link
     const parameters = [
       { name: "name", value: enquiry.name || "N/A" },
       { name: "phone", value: enquiry.mobile || "N/A" },
+      { name: "images", value: enquiry.pdf_url || "No PDF available" },
     ];
-
-    // Check if PDF is available for attachment
-    const hasPdf = !!enquiry.pdf_url;
 
     // Send to all numbers simultaneously
     const endpoint = settings.api_endpoint.replace(/\/$/, "");
@@ -75,14 +73,6 @@ Deno.serve(async (req) => {
           broadcast_name: "enquiry_" + enquiry.id.slice(0, 8),
           parameters,
         };
-
-        // Attach PDF as document if available
-        if (hasPdf) {
-          body.media = {
-            url: enquiry.pdf_url,
-            filename: `Enquiry_${enquiry.name.replace(/\s+/g, "_")}.pdf`,
-          };
-        }
 
         const res = await fetch(url, {
           method: "POST",
