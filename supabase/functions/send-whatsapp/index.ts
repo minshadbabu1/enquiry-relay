@@ -57,9 +57,9 @@ Deno.serve(async (req) => {
 
     // Build parameters: {{1}}=name, {{2}}=phone, {{3}}=pdf link
     const parameters = [
-      { name: "name", value: enquiry.name || "N/A" },
-      { name: "phone", value: enquiry.mobile || "N/A" },
-      { name: "images", value: enquiry.pdf_url || "No PDF available" },
+      { name: "1", value: enquiry.name || "N/A" },
+      { name: "2", value: enquiry.mobile || "N/A" },
+      { name: "3", value: enquiry.pdf_url || "No PDF available" },
     ];
 
     // Send to all numbers simultaneously
