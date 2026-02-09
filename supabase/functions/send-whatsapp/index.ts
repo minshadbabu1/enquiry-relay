@@ -55,26 +55,46 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ message: "No numbers configured" }), { headers: corsHeaders });
     }
 
+    // Build all parameters from enquiry
+    const parameters = [
+      { name: "name", value: enquiry.name || "N/A" },
+      { name: "phone", value: enquiry.mobile || "N/A" },
+      { name: "district", value: enquiry.district || "N/A" },
+      { name: "service", value: enquiry.service || "N/A" },
+      { name: "sqfeet", value: enquiry.sq_feet_area ? String(enquiry.sq_feet_area) : "N/A" },
+      { name: "requirements", value: enquiry.requirements || "None specified" },
+    ];
+
+    // Check if PDF is available for attachment
+    const hasPdf = !!enquiry.pdf_url;
+
     // Send to all numbers simultaneously
     const endpoint = settings.api_endpoint.replace(/\/$/, "");
     const results = await Promise.allSettled(
       numbers.map(async (n) => {
         const url = `${endpoint}/api/v1/sendTemplateMessage?whatsappNumber=${encodeURIComponent(n.phone_number)}`;
+
+        const body: Record<string, unknown> = {
+          template_name: settings.template_name,
+          broadcast_name: "enquiry_" + enquiry.id.slice(0, 8),
+          parameters,
+        };
+
+        // Attach PDF as document if available
+        if (hasPdf) {
+          body.media = {
+            url: enquiry.pdf_url,
+            filename: `Enquiry_${enquiry.name.replace(/\s+/g, "_")}.pdf`,
+          };
+        }
+
         const res = await fetch(url, {
           method: "POST",
           headers: {
             Authorization: settings.api_key,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            template_name: settings.template_name,
-            broadcast_name: "enquiry_" + enquiry.id.slice(0, 8),
-            parameters: [
-              { name: "name", value: enquiry.name },
-              { name: "phone", value: enquiry.mobile },
-              { name: "source", value: enquiry.service || enquiry.place },
-            ],
-          }),
+          body: JSON.stringify(body),
         });
         const resBody = await res.text();
         console.log(`WATI response for ${n.phone_number}: ${res.status} - ${resBody}`);
