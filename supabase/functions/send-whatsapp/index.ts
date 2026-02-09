@@ -71,9 +71,8 @@ Deno.serve(async (req) => {
             broadcast_name: "enquiry_" + enquiry.id.slice(0, 8),
             parameters: [
               { name: "name", value: enquiry.name },
-              { name: "mobile", value: enquiry.mobile },
-              { name: "place", value: enquiry.place },
-              { name: "sq_feet_area", value: String(enquiry.sq_feet_area) },
+              { name: "phone", value: enquiry.mobile },
+              { name: "Source", value: enquiry.place },
             ],
           }),
         });
