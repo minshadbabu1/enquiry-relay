@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { FileText, RotateCw } from "lucide-react";
+import { FileText, RotateCw, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -18,6 +18,14 @@ const EnquiriesTab = () => {
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyPdfLink = (url: string, id: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedId(id);
+    toast.success("PDF link copied!");
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const fetchEnquiries = async () => {
     const { data } = await supabase
@@ -123,9 +131,20 @@ const EnquiriesTab = () => {
                     </TableCell>
                     <TableCell>
                       {e.pdf_url ? (
-                        <a href={e.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-sm">
-                          <FileText className="h-4 w-4" /> View
-                        </a>
+                        <div className="flex items-center gap-1">
+                          <a href={e.pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline text-sm">
+                            <FileText className="h-4 w-4" /> View
+                          </a>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0"
+                            onClick={() => copyPdfLink(e.pdf_url, e.id)}
+                            title="Copy PDF link"
+                          >
+                            {copiedId === e.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                          </Button>
+                        </div>
                       ) : "—"}
                     </TableCell>
                     <TableCell>
