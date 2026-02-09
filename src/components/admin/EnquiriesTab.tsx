@@ -33,7 +33,7 @@ const EnquiriesTab = () => {
               <TableHead>Date</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Mobile</TableHead>
-              <TableHead>Place</TableHead>
+              <TableHead>Service</TableHead>
               <TableHead>Sq Feet</TableHead>
               <TableHead>WhatsApp</TableHead>
             </TableRow>

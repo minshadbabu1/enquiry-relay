@@ -13,7 +13,7 @@ import { CheckCircle2 } from "lucide-react";
 const enquirySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100),
   mobile: z.string().trim().min(10, "Enter a valid mobile number").max(15).regex(/^[0-9+\-\s]+$/, "Invalid mobile number"),
-  place: z.string().trim().min(1, "Place is required").max(200),
+  place: z.string().trim().min(1, "Service is required").max(200),
   sq_feet_area: z.string().min(1, "Area is required").regex(/^\d+(\.\d+)?$/, "Enter a valid number"),
 });
 
@@ -109,8 +109,8 @@ const Index = () => {
               )} />
               <FormField control={form.control} name="place" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Place</FormLabel>
-                  <FormControl><Input placeholder="Your city or locality" {...field} /></FormControl>
+                  <FormLabel>Service</FormLabel>
+                  <FormControl><Input placeholder="e.g. Interior Design, Renovation" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
