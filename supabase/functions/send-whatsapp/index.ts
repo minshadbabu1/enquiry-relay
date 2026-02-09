@@ -41,6 +41,10 @@ Deno.serve(async (req) => {
 
     if (!settings?.api_endpoint || !settings?.api_key) {
       console.log("WATI not configured, skipping");
+      await supabase
+        .from("enquiries")
+        .update({ whatsapp_status: "not_configured", whatsapp_response: { error: "WATI not configured" } })
+        .eq("id", enquiry_id);
       return new Response(JSON.stringify({ message: "WATI not configured" }), { headers: corsHeaders });
     }
 
@@ -52,6 +56,10 @@ Deno.serve(async (req) => {
 
     if (!numbers || numbers.length === 0) {
       console.log("No WhatsApp numbers configured");
+      await supabase
+        .from("enquiries")
+        .update({ whatsapp_status: "not_configured", whatsapp_response: { error: "No WhatsApp numbers configured" } })
+        .eq("id", enquiry_id);
       return new Response(JSON.stringify({ message: "No numbers configured" }), { headers: corsHeaders });
     }
 
@@ -84,19 +92,55 @@ Deno.serve(async (req) => {
         });
         const resBody = await res.text();
         console.log(`WATI response for ${n.phone_number}: ${res.status} - ${resBody}`);
-        return { phone: n.phone_number, status: res.status, ok: res.ok, body: resBody };
+
+        // Parse WATI response to check actual result
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(resBody);
+        } catch {
+          parsed = { raw: resBody };
+        }
+
+        const watiSuccess = parsed.result === true;
+        return { phone: n.phone_number, status: res.status, ok: watiSuccess, body: parsed };
       })
     );
 
-    const allSent = results.every((r) => r.status === "fulfilled" && (r.value as any).ok);
+    // Determine overall status
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const successCount = fulfilled.filter((r) => (r as PromiseFulfilledResult<any>).value.ok).length;
+    const totalCount = numbers.length;
+
+    let whatsappStatus: string;
+    if (successCount === totalCount) {
+      whatsappStatus = "sent";
+    } else if (successCount > 0) {
+      whatsappStatus = "partial";
+    } else {
+      whatsappStatus = "failed";
+    }
+
+    const allSent = whatsappStatus === "sent";
+
+    // Build response details per number
+    const responseDetails = results.map((r) => {
+      if (r.status === "fulfilled") {
+        return r.value;
+      }
+      return { phone: "unknown", ok: false, error: (r as PromiseRejectedResult).reason?.message };
+    });
 
     // Update enquiry status
     await supabase
       .from("enquiries")
-      .update({ whatsapp_sent: allSent })
+      .update({
+        whatsapp_sent: allSent,
+        whatsapp_status: whatsappStatus,
+        whatsapp_response: responseDetails,
+      })
       .eq("id", enquiry_id);
 
-    return new Response(JSON.stringify({ success: true, results }), { headers: corsHeaders });
+    return new Response(JSON.stringify({ success: allSent, status: whatsappStatus, results: responseDetails }), { headers: corsHeaders });
   } catch (err) {
     console.error("Error:", err);
     return new Response(JSON.stringify({ error: "Internal error" }), { status: 500, headers: corsHeaders });
