@@ -68,48 +68,48 @@ const Index = () => {
   const onSubmit = async (data: EnquiryForm) => {
     setLoading(true);
     try {
-      // 1. Insert enquiry
+      // 1. Upload images first (using a temp folder ID)
+      let imageUrls: string[] = [];
+      if (images.length > 0) {
+        const folderId = crypto.randomUUID();
+        const results = await Promise.allSettled(
+          images.map(async (file) => {
+            const ext = file.name.split(".").pop();
+            const path = `${folderId}/${crypto.randomUUID()}.${ext}`;
+            const { error: uploadErr } = await supabase.storage
+              .from("enquiry-images")
+              .upload(path, file);
+            if (uploadErr) throw uploadErr;
+            const { data: urlData } = supabase.storage
+              .from("enquiry-images")
+              .getPublicUrl(path);
+            return urlData.publicUrl;
+          })
+        );
+        imageUrls = results
+          .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+          .map((r) => r.value);
+      }
+
+      // 2. Single INSERT with all data including image URLs
       const { data: enquiry, error } = await supabase
         .from("enquiries")
         .insert({
           name: data.name,
           mobile: data.mobile,
-          place: data.district, // keep place for backward compat
+          place: data.district,
           sq_feet_area: data.sq_feet_area ? parseFloat(data.sq_feet_area) : 0,
           district: data.district,
           service: data.service,
           requirements: data.requirements || null,
+          image_urls: imageUrls.length > 0 ? imageUrls : null,
         })
         .select()
         .single();
 
       if (error) throw error;
 
-      // 2. Upload images
-      let imageUrls: string[] = [];
-      if (images.length > 0) {
-        const uploadPromises = images.map(async (file) => {
-          const ext = file.name.split(".").pop();
-          const path = `${enquiry.id}/${crypto.randomUUID()}.${ext}`;
-          const { error: uploadErr } = await supabase.storage
-            .from("enquiry-images")
-            .upload(path, file);
-          if (uploadErr) throw uploadErr;
-          const { data: urlData } = supabase.storage
-            .from("enquiry-images")
-            .getPublicUrl(path);
-          return urlData.publicUrl;
-        });
-        imageUrls = await Promise.all(uploadPromises);
-
-        // 3. Update enquiry with image URLs
-        await supabase
-          .from("enquiries")
-          .update({ image_urls: imageUrls } as any)
-          .eq("id", enquiry.id);
-      }
-
-      // 4. Generate PDF
+      // 3. Generate PDF (non-blocking)
       try {
         await supabase.functions.invoke("generate-pdf", {
           body: { enquiry_id: enquiry.id },
@@ -118,7 +118,7 @@ const Index = () => {
         console.error("PDF generation failed");
       }
 
-      // 5. Send WhatsApp
+      // 4. Send WhatsApp (non-blocking)
       try {
         await supabase.functions.invoke("send-whatsapp", {
           body: { enquiry_id: enquiry.id },
