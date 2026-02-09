@@ -1,41 +1,34 @@
 
 
-# Update WATI Template Parameters to Match Your Template
+# Fix Enquiry Submission - RLS Policy Issue
 
-## What's Changing
+## Problem
+The "Anyone can submit enquiries" INSERT policy on the `enquiries` table is created as **RESTRICTIVE** (not permissive). PostgreSQL requires at least one **PERMISSIVE** policy to grant access -- restrictive policies can only further limit access. Since there are no permissive policies for INSERT, all submissions are blocked.
 
-Your WATI template uses these placeholders:
-- `{{name}}` -- Customer Name
-- `{{phone}}` -- Phone number
-- `{{Source}}` -- Service/source (currently mapped to "place" in the form)
+## Fix
+Run a database migration to:
+1. Drop the current restrictive INSERT policy
+2. Re-create it as a **PERMISSIVE** policy so anyone (even unauthenticated users) can submit enquiries
 
-The current edge function sends 4 parameters (`name`, `mobile`, `place`, `sq_feet_area`) that don't match your template. We need to update the parameters to match exactly.
+Additionally, the admin SELECT policy also needs to be permissive for admins to view enquiries.
 
-## Changes
+## Technical Details
 
-### 1. Update Edge Function (`supabase/functions/send-whatsapp/index.ts`)
-- Change the `parameters` array to send only the 3 values your template expects:
-  - `name` -> `enquiry.name`
-  - `phone` -> `enquiry.mobile`
-  - `Source` -> `enquiry.place` (maps your "Place" form field to the Service/Source template variable)
+**SQL Migration:**
+```sql
+-- Fix INSERT policy: make it permissive so public users can submit
+DROP POLICY IF EXISTS "Anyone can submit enquiries" ON public.enquiries;
+CREATE POLICY "Anyone can submit enquiries"
+  ON public.enquiries FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
 
-### Technical Detail
-Lines 72-77 of the edge function will change from:
-```
-parameters: [
-  { name: "name", value: enquiry.name },
-  { name: "mobile", value: enquiry.mobile },
-  { name: "place", value: enquiry.place },
-  { name: "sq_feet_area", value: String(enquiry.sq_feet_area) },
-]
-```
-To:
-```
-parameters: [
-  { name: "name", value: enquiry.name },
-  { name: "phone", value: enquiry.mobile },
-  { name: "Source", value: enquiry.place },
-]
+-- Fix SELECT policy: make it permissive so admins can view
+DROP POLICY IF EXISTS "Admins can view enquiries" ON public.enquiries;
+CREATE POLICY "Admins can view enquiries"
+  ON public.enquiries FOR SELECT
+  TO authenticated
+  USING (has_role(auth.uid(), 'admin'::app_role));
 ```
 
-This is a single file change in the edge function only -- no database or frontend changes needed.
+No frontend code changes needed -- this is purely a database policy fix.
