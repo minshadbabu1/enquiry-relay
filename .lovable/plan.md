@@ -1,45 +1,67 @@
 
 
-## Add WATI Delivery Status Tracking
+## Fix PDF Generation -- Use pdf-lib for Proper Order Form
 
-### Current State
-- The `enquiries` table has a `whatsapp_sent` boolean column -- only tracks "Sent" or "Pending"
-- The edge function checks HTTP `res.ok` but WATI returns `200 OK` even on failures (with `result: false` in the body)
-- The admin panel shows a simple Sent/Pending badge
+### Problem
+The current PDF generator builds raw PDF bytes manually, producing a black/corrupt document. It also doesn't include all order details clearly.
 
-### What Changes
+### Solution
+Replace the manual PDF builder with `pdf-lib`, a well-tested library that works in Deno via `esm.sh`. This will produce a clean, readable order form with all enquiry details and properly embedded images.
 
-**1. Database: Add a `whatsapp_status` column**
-- Add a new `text` column `whatsapp_status` to the `enquiries` table (nullable, default `null`)
-- This will store detailed status: `"sent"`, `"failed"`, `"not_configured"`, or the actual WATI error message
-- Also add `whatsapp_response` as a `jsonb` column to store the full WATI API response for debugging
+### Changes
 
-**2. Edge Function: Fix success detection and store response details**
-- The current code uses `res.ok` to determine success, but WATI returns HTTP 200 even on failure -- the actual success indicator is `result: true` in the JSON body
-- Parse the WATI response JSON and check `result` field instead of HTTP status
-- Save the status and full response to the `whatsapp_status` and `whatsapp_response` columns
+**File: `supabase/functions/generate-pdf/index.ts`** -- Full rewrite
 
-**3. Admin Panel: Show detailed delivery status**
-- Replace the simple Sent/Pending badge with more detailed status display
-- Show "Sent" (green), "Failed" (red with error detail on hover), "Pending" (yellow), or "Not Configured" (gray)
-- Add a tooltip or expandable detail showing the WATI response when status is "Failed"
-- Add a "Retry" button for failed messages that re-invokes the edge function
+1. Import `pdf-lib` from `https://esm.sh/pdf-lib@1.17.1`
+2. Replace the `buildPdf` function with `pdf-lib` API calls:
+   - Create a new `PDFDocument`
+   - Add a page (A4 size: 595 x 842)
+   - Draw a styled header: "ORDER FORM / ENQUIRY DETAILS"
+   - Draw all fields with labels in bold (using Helvetica-Bold) and values in regular font:
+     - Name
+     - Phone Number
+     - District
+     - Service
+     - Square Feet Area
+     - Requirements (with text wrapping for long content)
+     - Submission Date
+   - Draw a separator line between header and content
+   - If images exist, embed each JPEG/PNG image on subsequent pages using `pdfDoc.embedJpg()` / `pdfDoc.embedPng()`, scaled to fit the page
+3. Serialize with `pdfDoc.save()` which returns a proper `Uint8Array`
+4. Keep the existing upload and URL update logic unchanged
 
 ### Technical Details
 
-**Migration SQL:**
-```sql
-ALTER TABLE enquiries 
-  ADD COLUMN whatsapp_status text DEFAULT NULL,
-  ADD COLUMN whatsapp_response jsonb DEFAULT NULL;
+```text
+Page 1: Order Details
++----------------------------------+
+|  ORDER FORM / ENQUIRY DETAILS    |
+|  ____________________________    |
+|                                  |
+|  Name:          John Doe         |
+|  Phone:         9876543210       |
+|  District:      Ernakulam        |
+|  Service:       Interior Design  |
+|  Area:          1200 sq.ft       |
+|  Requirements:  Modern kitchen   |
+|                 with island...   |
+|  Date:          09/02/2026       |
+|                                  |
+|  Images:        3 attached       |
++----------------------------------+
+
+Page 2+: One image per page (if any)
++----------------------------------+
+|                                  |
+|        [Embedded Image]          |
+|                                  |
++----------------------------------+
 ```
 
-**Edge function changes (`supabase/functions/send-whatsapp/index.ts`):**
-- Parse each WATI response as JSON and check `result` field
-- Determine overall status: `"sent"` if all succeed, `"partial"` if some fail, `"failed"` if all fail
-- Update enquiry with both `whatsapp_sent`, `whatsapp_status`, and `whatsapp_response`
+**Key improvements:**
+- Uses `pdf-lib` (proven library) instead of hand-crafted PDF bytes
+- Embeds actual JPEG/PNG images into the PDF instead of placeholder references
+- Includes all order fields with clear formatting
+- Handles long requirement text with word wrapping
+- White background with black text (fixes the "all black" issue)
 
-**Admin UI changes (`src/components/admin/EnquiriesTab.tsx`):**
-- Color-coded badges: green for "sent", red for "failed", yellow for "pending", orange for "partial"
-- Tooltip on hover showing WATI error details from `whatsapp_response`
-- "Retry" button on failed rows that calls the `send-whatsapp` function again and refreshes the list
