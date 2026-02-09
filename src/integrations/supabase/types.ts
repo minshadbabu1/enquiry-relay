@@ -17,28 +17,43 @@ export type Database = {
       enquiries: {
         Row: {
           created_at: string
+          district: string | null
           id: string
+          image_urls: string[] | null
           mobile: string
           name: string
+          pdf_url: string | null
           place: string
+          requirements: string | null
+          service: string | null
           sq_feet_area: number
           whatsapp_sent: boolean
         }
         Insert: {
           created_at?: string
+          district?: string | null
           id?: string
+          image_urls?: string[] | null
           mobile: string
           name: string
+          pdf_url?: string | null
           place: string
+          requirements?: string | null
+          service?: string | null
           sq_feet_area: number
           whatsapp_sent?: boolean
         }
         Update: {
           created_at?: string
+          district?: string | null
           id?: string
+          image_urls?: string[] | null
           mobile?: string
           name?: string
+          pdf_url?: string | null
           place?: string
+          requirements?: string | null
+          service?: string | null
           sq_feet_area?: number
           whatsapp_sent?: boolean
         }

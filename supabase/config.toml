@@ -2,3 +2,6 @@ project_id = "qsqafptuqpwuzyhhsdxv"
 
 [functions.send-whatsapp]
 verify_jwt = false
+
+[functions.generate-pdf]
+verify_jwt = false
