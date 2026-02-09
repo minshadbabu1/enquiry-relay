@@ -55,14 +55,10 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ message: "No numbers configured" }), { headers: corsHeaders });
     }
 
-    // Build all parameters from enquiry
+    // Build parameters matching WATI template: {{1}}=name, {{2}}=phone, {{3}}=pdf (document header)
     const parameters = [
       { name: "name", value: enquiry.name || "N/A" },
       { name: "phone", value: enquiry.mobile || "N/A" },
-      { name: "district", value: enquiry.district || "N/A" },
-      { name: "service", value: enquiry.service || "N/A" },
-      { name: "sqfeet", value: enquiry.sq_feet_area ? String(enquiry.sq_feet_area) : "N/A" },
-      { name: "requirements", value: enquiry.requirements || "None specified" },
     ];
 
     // Check if PDF is available for attachment
