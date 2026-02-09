@@ -1,18 +1,41 @@
 
+## Fix PDF Access with Short URL Redirect
 
-## Show Truncated PDF Links in Admin Panel
+### Problem
+The full Supabase storage URLs are very long and may be getting truncated or blocked when shared. The URL format is:
+`https://qsqafptuqpwuzyhhsdxv.supabase.co/storage/v1/object/public/enquiry-pdfs/{id}/order-form.pdf`
 
-### What Changes
+### Solution
+Create a backend function that serves as a short URL redirector, so PDFs can be accessed via a much shorter, cleaner URL like:
+`https://{project}.supabase.co/functions/v1/pdf/{enquiry_id}`
 
-**File: `src/components/admin/EnquiriesTab.tsx`**
+### Changes
 
-- When displaying or copying the PDF URL, show a truncated/friendly version in the table (e.g., `order-form.pdf`) while keeping the full URL for the "View" link and "Copy" button.
-- Add a small text display next to the View/Copy buttons showing just the filename portion (`order-form.pdf`) or a short ID-based label like `PDF-9f74...` so it's easy to identify at a glance.
-- The copy button will still copy the full working URL to clipboard.
+**1. New Edge Function: `supabase/functions/pdf/index.ts`**
+- Accepts a GET request with `id` query parameter
+- Looks up the `pdf_url` from the `enquiries` table
+- Returns a 302 redirect to the actual storage URL
+- No authentication required (public access like the storage bucket)
 
-### Details
+**2. Update `src/components/admin/EnquiriesTab.tsx`**
+- Update the PDF link and copy button to use the short URL format instead of the raw storage URL
+- Short URL format: `https://qsqafptuqpwuzyhhsdxv.supabase.co/functions/v1/pdf?id={enquiry_id}`
 
-- Extract the last segment of the PDF URL to display as a short label
-- Show it as a compact, readable reference in the PDF column
-- No backend changes needed -- this is purely a UI formatting change
+**3. Update `supabase/functions/generate-pdf/index.ts`**
+- After generating the PDF, store the short URL in the `pdf_url` column instead of the full storage URL
+- Or keep the full URL but the UI will construct the short URL from the enquiry ID
 
+### Technical Details
+
+The edge function will be minimal:
+```
+GET /pdf?id={enquiry_id}
+  -> Query enquiries table for pdf_url
+  -> 302 Redirect to the full storage URL
+```
+
+This ensures:
+- Short, shareable links that won't get truncated
+- Links still point to the actual PDF in storage
+- No changes to PDF generation logic
+- Works in WhatsApp, browsers, and any other context
