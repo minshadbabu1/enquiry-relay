@@ -27,7 +27,9 @@ export type Database = {
           requirements: string | null
           service: string | null
           sq_feet_area: number
+          whatsapp_response: Json | null
           whatsapp_sent: boolean
+          whatsapp_status: string | null
         }
         Insert: {
           created_at?: string
@@ -41,7 +43,9 @@ export type Database = {
           requirements?: string | null
           service?: string | null
           sq_feet_area: number
+          whatsapp_response?: Json | null
           whatsapp_sent?: boolean
+          whatsapp_status?: string | null
         }
         Update: {
           created_at?: string
@@ -55,7 +59,9 @@ export type Database = {
           requirements?: string | null
           service?: string | null
           sq_feet_area?: number
+          whatsapp_response?: Json | null
           whatsapp_sent?: boolean
+          whatsapp_status?: string | null
         }
         Relationships: []
       }
