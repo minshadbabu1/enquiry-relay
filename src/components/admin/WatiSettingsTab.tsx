@@ -9,7 +9,7 @@ import { toast } from "sonner";
 const WatiSettingsTab = () => {
   const [endpoint, setEndpoint] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [templateName, setTemplateName] = useState("enquiry_notification");
+  const [templateName, setTemplateName] = useState("enquiry_notification_test");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 

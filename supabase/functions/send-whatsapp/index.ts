@@ -63,11 +63,14 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ message: "No numbers configured" }), { headers: corsHeaders });
     }
 
-    // Build parameters: {{1}}=name, {{2}}=phone, {{3}}=pdf link
+    // Build parameters: {{1}}=name, {{2}}=phone, {{3}}=short pdf link
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const shortPdfUrl = `${supabaseUrl}/functions/v1/pdf?id=${enquiry.id}`;
+
     const parameters = [
       { name: "1", value: enquiry.name || "N/A" },
       { name: "2", value: enquiry.mobile || "N/A" },
-      { name: "3", value: enquiry.pdf_url || "No PDF available" },
+      { name: "3", value: shortPdfUrl },
     ];
 
     // Send to all numbers simultaneously
