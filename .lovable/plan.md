@@ -1,56 +1,117 @@
 
 
-# Fix: Enquiry Form Submission Failing with Images
+# Fix: Make Enquiry Form Submission Robust
 
-## Root Cause
+## Problem Summary
 
-The enquiry submission fails when images are attached because after uploading images to storage, the code attempts to **UPDATE** the `enquiries` table with image URLs. However, the `enquiries` table only has INSERT and SELECT RLS policies -- there is **no UPDATE policy**, so the update is silently rejected, and subsequent steps may fail.
+The RLS policy fix was applied successfully (confirmed by automated test and database verification). However, the form submission can still fail because:
 
-Additionally, the current flow is fragile: if any single image upload fails, the entire submission errors out.
+1. **`.select().single()` after INSERT** -- The code needs the returned `enquiry.id` for PDF generation and WhatsApp calls. PostgREST's behavior with RETURNING when there's no matching SELECT policy can be inconsistent.
+2. **The published URL may still serve old code** that uses a different submission flow.
 
-## Fix
+## Solution
 
-### 1. Add UPDATE RLS policy for enquiries table
+### 1. Generate enquiry ID client-side (src/pages/Index.tsx)
 
-Allow anyone to update their own enquiry (limited to `image_urls` column isn't possible via RLS, but we can allow general updates since the form needs it).
+Instead of relying on `.select().single()` to get the inserted row's ID back, generate the UUID on the client and include it in the INSERT. Then remove `.select().single()` entirely.
 
-Alternatively, a simpler approach: **include `image_urls` in the initial INSERT** instead of updating afterward. This removes the need for an UPDATE policy entirely.
+**Changes to `onSubmit` function:**
+- Generate `enquiryId = crypto.randomUUID()` before the INSERT
+- Include `id: enquiryId` in the insert payload
+- Replace `.select().single()` with just the insert call and check `error`
+- Use `enquiryId` directly for the PDF and WhatsApp edge function calls
 
-### 2. Restructure the submission flow
+### 2. Add an UPDATE RLS policy for enquiries (Database Migration)
 
-Change the order so images are uploaded **before** the enquiry is inserted, then include the image URLs directly in the INSERT statement. This eliminates the need for an UPDATE call entirely.
+The `send-whatsapp` edge function uses the service role key (bypasses RLS), but adding an UPDATE policy for the service role is good practice. More importantly, if anyone accidentally uses the anon client, it won't silently fail.
 
-**New flow:**
-1. Upload images to storage (using a temporary UUID as folder name)
-2. Collect all image URLs  
-3. INSERT enquiry with all data including image URLs in one call
-4. Call generate-pdf edge function
-5. Call send-whatsapp edge function
+```sql
+CREATE POLICY "Service role can update enquiries"
+ON public.enquiries
+FOR UPDATE
+TO service_role
+USING (true)
+WITH CHECK (true);
+```
 
-### 3. Add error resilience for image uploads
+### 3. Better error logging (src/pages/Index.tsx)
 
-Use `Promise.allSettled` instead of `Promise.all` so that if one image fails to upload, the others still succeed and the form still submits.
-
----
+Add `console.error` with the actual error object before showing the toast, so the user can share the browser console output for debugging.
 
 ## Technical Details
 
-### File: `src/pages/Index.tsx` (modify `onSubmit` function)
+### File: src/pages/Index.tsx
 
-**Before:**
-- Insert enquiry -> Upload images -> Update enquiry with URLs -> Generate PDF -> Send WhatsApp
+Replace lines 94-110 (the INSERT + select + error check):
 
-**After:**
-- Generate a temporary ID (UUID) for image folder
-- Upload all images using `Promise.allSettled` (collect successful URLs)
-- Insert enquiry with all fields including `image_urls` in one call
-- Call generate-pdf (wrapped in try/catch, non-blocking)
-- Call send-whatsapp (wrapped in try/catch, non-blocking)
+```typescript
+// Generate ID client-side so we don't need .select().single()
+const enquiryId = crypto.randomUUID();
 
-Key changes:
-- Use `crypto.randomUUID()` to generate a folder ID before insert
-- Upload images first, collect URLs from successful uploads
-- Single INSERT with all data including `image_urls`
-- Remove the separate UPDATE call entirely
-- Use `Promise.allSettled` for resilient image uploading
+const { error } = await supabase
+  .from("enquiries")
+  .insert({
+    id: enquiryId,
+    name: data.name,
+    mobile: data.mobile,
+    place: data.district,
+    sq_feet_area: data.sq_feet_area ? parseFloat(data.sq_feet_area) : 0,
+    district: data.district,
+    service: data.service,
+    requirements: data.requirements || null,
+    image_urls: imageUrls.length > 0 ? imageUrls : null,
+  });
+
+if (error) throw error;
+```
+
+Replace edge function calls to use `enquiryId` instead of `enquiry.id`:
+
+```typescript
+// 3. Generate PDF (non-blocking)
+try {
+  await supabase.functions.invoke("generate-pdf", {
+    body: { enquiry_id: enquiryId },
+  });
+} catch {
+  console.error("PDF generation failed");
+}
+
+// 4. Send WhatsApp (non-blocking)
+try {
+  await supabase.functions.invoke("send-whatsapp", {
+    body: { enquiry_id: enquiryId },
+  });
+} catch {
+  console.error("WhatsApp notification failed");
+}
+```
+
+Update catch block to log detailed errors:
+
+```typescript
+} catch (err) {
+  console.error("Enquiry submission error:", err);
+  toast.error("Failed to submit enquiry. Please try again.");
+}
+```
+
+### Database Migration
+
+```sql
+-- Add UPDATE policy for service_role (used by edge functions)
+CREATE POLICY "Service role can update enquiries"
+ON public.enquiries
+FOR UPDATE
+TO service_role
+USING (true)
+WITH CHECK (true);
+```
+
+## Expected Outcome
+
+- Form submissions will work reliably with or without images
+- No dependency on SELECT policy for reading back inserted data
+- Edge functions can still update enquiry records via service role
+- Better error logging for any future debugging
 
